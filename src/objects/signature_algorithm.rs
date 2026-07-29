@@ -27,13 +27,9 @@ pub enum SignatureAlgorithm {
 
 impl SignatureAlgorithm {
     pub(crate) fn is_rsa(&self) -> bool {
-        #[cfg(feature = "extra_signature_algos")]
-        {
+        if cfg!(feature = "extra_signature_algos") {
             matches!(self, Self::RSA_SHA256 | Self::RSA_SHA384 | Self::RSA_SHA512)
-        }
-
-        #[cfg(not(feature = "extra_signature_algos"))]
-        {
+        } else {
             false
         }
     }

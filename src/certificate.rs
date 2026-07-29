@@ -189,12 +189,9 @@ impl Certificate {
                 return Err(CertificateErr::RsaKeySizeNotSet);
             };
 
-            #[cfg(feature = "extra_signature_algos")]
-            {
+            if cfg!(feature = "extra_signature_algos") {
                 KeyPair::generate_rsa_for(self.signature.into(), key_size.into())?
-            }
-            #[cfg(not(feature = "extra_signature_algos"))]
-            {
+            } else {
                 unreachable!("is_rsa() should not have returned true")
             }
         } else {
