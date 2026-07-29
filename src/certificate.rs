@@ -5,7 +5,7 @@ use crate::objects::{
     KeyIdMethod, KeyUsagePurpose, RsaKeySize, SerialNumber, SignatureAlgorithm,
 };
 use certificate_builder::{
-    IsComplete, IsUnset, SetNotAfter, SetNotBefore, SetSubjectAltNames, State,
+    IsComplete, IsUnset, SetDistinguishedName, SetNotAfter, SetNotBefore, SetSubjectAltNames, State,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -46,7 +46,7 @@ pub struct Certificate {
     /// flutter_rust_bridge:non_final
     pub serial_number: Option<SerialNumber>,
     /// flutter_rust_bridge:non_final
-    #[builder(into)]
+    #[builder(setters(vis = "", name = distinguished_name_internal))]
     pub distinguished_name: Vec<(DnType, String)>,
     /// flutter_rust_bridge:non_final
     #[builder(into)]
@@ -109,6 +109,21 @@ impl<S: State> CertificateBuilder<S> {
         let data = data.into().into_iter().map(Into::into).collect::<Vec<_>>();
 
         self.subject_alt_names_internal(data)
+    }
+
+    pub fn distinguished_name<V, V2>(self, data: V) -> CertificateBuilder<SetDistinguishedName<S>>
+    where
+        S::DistinguishedName: IsUnset,
+        V: Into<Vec<(DnType, V2)>>,
+        V2: Into<String>,
+    {
+        let data = data
+            .into()
+            .into_iter()
+            .map(|(t, t2)| (t, t2.into()))
+            .collect::<Vec<_>>();
+
+        self.distinguished_name_internal(data)
     }
 }
 
