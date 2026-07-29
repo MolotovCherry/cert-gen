@@ -1,4 +1,5 @@
 use bon::Builder;
+pub use rcgen::{BasicConstraints, IsCa};
 
 use crate::objects::{
     CertifiedKey, CrlDistributionPoint, CustomExtension, Date, DnType, ExtendedKeyUsagePurpose,
@@ -18,7 +19,7 @@ pub enum CertificateErr {
     CaCertTypeErr,
 }
 
-#[derive(Debug, Builder, Default)]
+#[derive(Debug, Builder)]
 #[builder(finish_fn(vis = ""))] // internal builder
 pub struct Certificate {
     /// Optional CA to use instead of making our own.
@@ -27,6 +28,8 @@ pub struct Certificate {
     /// flutter_rust_bridge:non_final
     #[builder(into)]
     pub ca: Option<Vec<u8>>,
+    #[builder(default = IsCa::NoCa)]
+    pub is_ca: IsCa,
     /// Signature algorithm for the CSR. If not set, defaults to PKCS_ED25519.
     /// If you select RSA, you must set `rsa_key_size` as well.
     /// flutter_rust_bridge:non_final
@@ -85,6 +88,36 @@ pub struct Certificate {
     pub rsa_key_size: Option<RsaKeySize>,
 }
 
+impl Default for Certificate {
+    fn default() -> Self {
+        Self {
+            not_before: Date {
+                year: 1975,
+                month: 1,
+                day: 1,
+            },
+            not_after: Date {
+                year: 4096,
+                month: 1,
+                day: 1,
+            },
+            ca: Default::default(),
+            is_ca: IsCa::NoCa,
+            signature: Default::default(),
+            subject_alt_names: Default::default(),
+            serial_number: Default::default(),
+            distinguished_name: Default::default(),
+            key_usages: Default::default(),
+            extended_key_usages: Default::default(),
+            crl_distribution_points: Default::default(),
+            custom_extensions: Default::default(),
+            use_authority_key_identifier_extension: Default::default(),
+            key_identifier_method: Default::default(),
+            rsa_key_size: Default::default(),
+        }
+    }
+}
+
 impl<S: State> CertificateBuilder<S> {
     pub fn not_before(self, year: i32, month: u8, day: u8) -> CertificateBuilder<SetNotBefore<S>>
     where
@@ -136,19 +169,7 @@ impl<S: IsComplete> CertificateBuilder<S> {
 impl Certificate {
     /// flutter_rust_bridge:sync
     pub fn new() -> Self {
-        Self {
-            not_before: Date {
-                year: 1975,
-                month: 1,
-                day: 1,
-            },
-            not_after: Date {
-                year: 4096,
-                month: 1,
-                day: 1,
-            },
-            ..Default::default()
-        }
+        Self::default()
     }
 
     pub fn generate(self) -> Result<CertifiedKey, CertificateErr> {
@@ -212,6 +233,7 @@ impl Certificate {
         };
 
         let mut cert = CertificateParams::new(self.subject_alt_names)?;
+        cert.is_ca = self.is_ca;
         cert.not_before = self.not_before.into();
         cert.not_after = self.not_after.into();
         cert.serial_number = self.serial_number.map(Into::into);
