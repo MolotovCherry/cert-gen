@@ -13,7 +13,7 @@ version = "*"
 features = ["prebuilt-nasm"]
 
 [dependencies]
-rcgen = { version = "0.14.8", features = ["x509-parser"] }
+rcgen = { version = "0.14.8", features = ["x509-parser", "pem"] }
 rustls-pki-types = "1.15.1"
 bon = "3.9.3"
 time = "0.3.54"

@@ -23,11 +23,17 @@ pub enum CertificateErr {
 #[builder(finish_fn(vis = ""))] // internal builder
 pub struct Certificate {
     /// Optional CA to use instead of making our own.
-    /// This is full CA file contents (not a path).
+    /// This is full public CA file contents (not a path).
     /// It can be a normal PEM string, or DER bytes
     /// flutter_rust_bridge:non_final
     #[builder(into)]
-    pub ca: Option<Vec<u8>>,
+    pub ca_cert: Option<Vec<u8>>,
+    /// Optional CA to use instead of making our own.
+    /// This is full private CA file contents (not a path).
+    /// It can be a normal PEM string, or DER bytes
+    /// flutter_rust_bridge:non_final
+    #[builder(into)]
+    pub ca_key: Option<Vec<u8>>,
     #[builder(default = IsCa::NoCa)]
     pub is_ca: IsCa,
     /// Signature algorithm for the CSR. If not set, defaults to PKCS_ED25519.
@@ -101,7 +107,8 @@ impl Default for Certificate {
                 month: 1,
                 day: 1,
             },
-            ca: Default::default(),
+            ca_cert: None,
+            ca_key: None,
             is_ca: IsCa::NoCa,
             signature: Default::default(),
             subject_alt_names: Default::default(),
@@ -173,48 +180,10 @@ impl Certificate {
     }
 
     pub fn generate(self) -> Result<CertifiedKey, CertificateErr> {
-        use rcgen::{CertificateParams, DistinguishedName, KeyPair};
-        use rustls_pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+        use rcgen::{CertificateParams, DistinguishedName, Issuer, KeyPair};
+        use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
-        // CA private signing key
-        let signing_key = if let Some(ca) = self.ca {
-            'ok: {
-                if let Ok(ca) = str::from_utf8(&ca) {
-                    if let Ok(key) = KeyPair::from_pem(ca) {
-                        break 'ok key;
-                    }
-
-                    if let Ok(key) = KeyPair::from_pem_and_sign_algo(ca, self.signature.into()) {
-                        break 'ok key;
-                    }
-
-                    if let Ok(key) =
-                        KeyPair::from_pkcs8_pem_and_sign_algo(ca, self.signature.into())
-                    {
-                        break 'ok key;
-                    }
-                }
-
-                // try to auto detect der + sig
-                if let Ok(key) = KeyPair::try_from(&*ca) {
-                    break 'ok key;
-                }
-
-                if let Ok(key) = TryInto::<PrivateKeyDer>::try_into(&*ca)
-                    && let Ok(key) = KeyPair::from_der_and_sign_algo(&key, self.signature.into())
-                {
-                    break 'ok key;
-                }
-
-                let key = PrivatePkcs8KeyDer::from(&*ca);
-                if let Ok(key) = KeyPair::from_pkcs8_der_and_sign_algo(&key, self.signature.into())
-                {
-                    break 'ok key;
-                }
-
-                return Err(CertificateErr::CaCertTypeErr);
-            }
-        } else if self.signature.is_rsa() {
+        let signing_key = if self.signature.is_rsa() {
             #[cfg(feature = "extra_signature_algos")]
             let Some(key_size) = self.rsa_key_size else {
                 return Err(CertificateErr::RsaKeySizeNotSet);
@@ -259,7 +228,55 @@ impl Certificate {
         cert.use_authority_key_identifier_extension = self.use_authority_key_identifier_extension;
         cert.key_identifier_method = self.key_identifier_method.into();
 
-        let cert = cert.self_signed(&signing_key)?;
+        let cert = if let (Some(crt), Some(key)) = (self.ca_cert, self.ca_key) {
+            let issuer_key = 'ok: {
+                if let Ok(ca) = str::from_utf8(&key) {
+                    if let Ok(key) = KeyPair::from_pem(ca) {
+                        break 'ok key;
+                    }
+
+                    if let Ok(key) = KeyPair::from_pem_and_sign_algo(ca, self.signature.into()) {
+                        break 'ok key;
+                    }
+
+                    if let Ok(key) =
+                        KeyPair::from_pkcs8_pem_and_sign_algo(ca, self.signature.into())
+                    {
+                        break 'ok key;
+                    }
+                }
+
+                // try to auto detect der + sig
+                if let Ok(key) = KeyPair::try_from(&*key) {
+                    break 'ok key;
+                }
+
+                if let Ok(key) = TryInto::<PrivateKeyDer>::try_into(&*key)
+                    && let Ok(key) = KeyPair::from_der_and_sign_algo(&key, self.signature.into())
+                {
+                    break 'ok key;
+                }
+
+                let key = PrivatePkcs8KeyDer::from(&*key);
+                if let Ok(key) = KeyPair::from_pkcs8_der_and_sign_algo(&key, self.signature.into())
+                {
+                    break 'ok key;
+                }
+
+                return Err(CertificateErr::CaCertTypeErr);
+            };
+
+            let issuer = if let Ok(pem) = str::from_utf8(&crt) {
+                Issuer::from_ca_cert_pem(pem, issuer_key)?
+            } else {
+                let der = CertificateDer::from_slice(&crt);
+                Issuer::from_ca_cert_der(&der, issuer_key)?
+            };
+
+            cert.signed_by(&signing_key, &issuer)?
+        } else {
+            cert.self_signed(&signing_key)?
+        };
 
         Ok(CertifiedKey { cert, signing_key })
     }
